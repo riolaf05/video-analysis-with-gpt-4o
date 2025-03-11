@@ -23,10 +23,7 @@ The aim of this repository is to demonstrate the capabilities of GPT-4o to analy
     - [Example](#example-2)
 
 ## Prerequisites
-+ An Azure subscription, with [access to Azure OpenAI](https://aka.ms/oai/access).
-+ An Azure OpenAI service with the service name and an API key.
-+ A deployment of GPT-4o model on the Azure OpenAI Service.
-+ A deployment of Whisper model on the Azure OpenAI Service.
++ An OpenAI key
 
 I used Python 3.12.5, [Visual Studio Code with the Python extension](https://code.visualstudio.com/docs/python/python-tutorial), and the [Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) to test this example.
 
@@ -46,15 +43,7 @@ Create a `.env` file in the root directory of your project with the following co
 ```
 SYSTEM_PROMPT="You are an expert on Video Analysis. You will be shown a series of images from a video. Describe what is happening in the video, including the objects, actions, and any other relevant details. Be as specific and detailed as possible."
 
-AZURE_OPENAI_ENDPOINT=<your_azure_openai_endpoint>
-AZURE_OPENAI_API_KEY=<your_azure_openai_api_key>
-AZURE_OPENAI_API_VERSION=<your_azure_openai_api_version>
-AZURE_OPENAI_DEPLOYMENT_NAME=<your_azure_openai_deployment_name>
-
-WHISPER_ENDPOINT=<your_whisper_endpoint>
-WHISPER_API_KEY=<your_whisper_api_key>
-WHISPER_API_VERSION=<your_whisper_api_version>
-WHISPER_DEPLOYMENT_NAME=<your_whisper_deployment_name>
+OPENAI_API_KEY=
 ```
 
 The needed libraries are specified in [requirements.txt](requirements.txt).

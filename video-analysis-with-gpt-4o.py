@@ -7,15 +7,20 @@ import json
 from dotenv import load_dotenv
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 from moviepy.editor import VideoFileClip
-from openai import AzureOpenAI
+from llm import initialize_llm
 import base64
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
 # Default configuration
+LOKI_URL = os.getenv('LOKI_URL')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+MODEL_OPTION = "OpenAI GPT-4o-no-chat"
+MODEL_NAME="gpt-4o"
 SEGMENT_DURATION = 20 # In seconds, Set to 0 to not split the video
-SYSTEM_PROMPT = "You are a helpful assistant that describes in detail a video. Response in the same language than the transcription."
-USER_PROMPT = "These are the frames from the video."
+SYSTEM_PROMPT = "Sei un assistente utile che descrive in dettaglio un video. Rispondi nella stessa lingua della trascrizione."  
+USER_PROMPT = "Questi sono i fotogrammi del video."
 DEFAULT_TEMPERATURE = 0.5
 RESIZE_OF_FRAMES = 2
 SECONDS_PER_FRAME = 30
@@ -24,31 +29,21 @@ SECONDS_PER_FRAME = 30
 load_dotenv(override=True)
 
 # Configuration of OpenAI GPT-4o
-aoai_endpoint = os.environ["AZURE_OPENAI_ENDPOINT"]
-aoai_apikey = os.environ["AZURE_OPENAI_API_KEY"]
-aoai_apiversion = os.environ["AZURE_OPENAI_API_VERSION"]
-aoai_model_name = os.environ["AZURE_OPENAI_DEPLOYMENT_NAME"]
 system_prompt = os.environ.get("SYSTEM_PROMPT", "You are an expert on Video Analysis. You will be shown a series of images from a video. Describe what is happening in the video, including the objects, actions, and any other relevant details. Be as specific and detailed as possible.")
-print(f'aoai_endpoint: {aoai_endpoint}, aoai_model_name: {aoai_model_name}')
 # Create AOAI client for answer generation
-aoai_client = AzureOpenAI(
-    azure_deployment=aoai_model_name,
-    api_version=aoai_apiversion, #'2024-02-15-preview',
-    azure_endpoint=aoai_endpoint,
-    api_key=aoai_apikey
-)
+client = initialize_llm(MODEL_OPTION, OPENAI_API_KEY, temperature=DEFAULT_TEMPERATURE)
 
 # Configuration of Whisper
-whisper_endpoint = os.environ["WHISPER_ENDPOINT"]
-whisper_apikey = os.environ["WHISPER_API_KEY"]
-whisper_apiversion = os.environ["WHISPER_API_VERSION"]
-whisper_model_name = os.environ["WHISPER_DEPLOYMENT_NAME"]
-# Create AOAI client for whisper
-whisper_client = AzureOpenAI(
-    api_version=whisper_apiversion,
-    azure_endpoint=whisper_endpoint,
-    api_key=whisper_apikey
-)
+# whisper_endpoint = os.environ["WHISPER_ENDPOINT"]
+# whisper_apikey = os.environ["WHISPER_API_KEY"]
+# whisper_apiversion = os.environ["WHISPER_API_VERSION"]
+# whisper_model_name = os.environ["WHISPER_DEPLOYMENT_NAME"]
+# Create AOAI client for whisper #TODO
+# whisper_client = AzureOpenAI(
+#     api_version=whisper_apiversion,
+#     azure_endpoint=whisper_endpoint,
+#     api_key=whisper_apikey
+# )
 
 # Function to encode a local video into frames
 def process_video(video_path, seconds_per_frame=SECONDS_PER_FRAME, resize=RESIZE_OF_FRAMES, output_dir='', temperature = DEFAULT_TEMPERATURE):
@@ -97,30 +92,30 @@ def process_video(video_path, seconds_per_frame=SECONDS_PER_FRAME, resize=RESIZE
     return base64Frames
 
 # Function to transcript the audio from the local video with Whisper
-def process_audio(video_path):
+# def process_audio(video_path):
 
-    transcription_text = ''
-    try:
-        base_video_path, _ = os.path.splitext(video_path)
-        audio_path = f"{base_video_path}.mp3"
-        clip = VideoFileClip(video_path)
-        clip.audio.write_audiofile(audio_path, bitrate="32k")
-        clip.audio.close()
-        clip.close()
-        print(f"Extracted audio to {audio_path}")
+#     transcription_text = ''
+#     try:
+#         base_video_path, _ = os.path.splitext(video_path)
+#         audio_path = f"{base_video_path}.mp3"
+#         clip = VideoFileClip(video_path)
+#         clip.audio.write_audiofile(audio_path, bitrate="32k")
+#         clip.audio.close()
+#         clip.close()
+#         print(f"Extracted audio to {audio_path}")
 
-        # Transcribe the audio
-        transcription = whisper_client.audio.transcriptions.create(
-            model=whisper_model_name,
-            file=open(audio_path, "rb"),
-        )
-        transcription_text = transcription.text
-        print("Transcript: ", transcription_text + "\n\n")
-    except Exception as ex:
-        print(f'ERROR: {ex}')
-        transcription_text = ''
+#         # Transcribe the audio
+#         transcription = whisper_client.audio.transcriptions.create(
+#             model=whisper_model_name,
+#             file=open(audio_path, "rb"),
+#         )
+#         transcription_text = transcription.text
+#         print("Transcript: ", transcription_text + "\n\n")
+#     except Exception as ex:
+#         print(f'ERROR: {ex}')
+#         transcription_text = ''
 
-    return transcription_text
+#     return transcription_text
 
 # Function to analyze the video with GPT-4o
 def analyze_video(base64frames, system_prompt, user_prompt, transcription, temperature):
@@ -128,32 +123,32 @@ def analyze_video(base64frames, system_prompt, user_prompt, transcription, tempe
     print(f'USER PROMPT:   [{user_prompt}]')
 
     try:
-        if transcription: # Include the audio transcription
-            response = aoai_client.chat.completions.create(
-                model=aoai_model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                    {"role": "user", "content": [
-                        *map(lambda x: {"type": "image_url", "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "auto"}}, base64frames),
-                        {"type": "text", "text": f"The audio transcription is: {transcription if isinstance(transcription, str) else transcription.text}"}
-                    ]}
-                ],
-                temperature=temperature,
-                max_tokens=4096
-            )
-        else: # Without the audio transcription
-            response = aoai_client.chat.completions.create(
-                model=aoai_model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                    {"role": "user", "content": [
-                        *map(lambda x: {"type": "image_url", "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "auto"}}, base64frames),
-                    ]}
-                ],
-                temperature=0.5,
-                max_tokens=4096
+        # if transcription: # Include the audio transcription
+        #     response = client.chat.completions.create(
+        #         model=MODEL_OPTION,
+        #         messages=[
+        #             {"role": "system", "content": system_prompt},
+        #             {"role": "user", "content": user_prompt},
+        #             {"role": "user", "content": [
+        #                 *map(lambda x: {"type": "image_url", "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "auto"}}, base64frames),
+        #                 {"type": "text", "text": f"The audio transcription is: {transcription if isinstance(transcription, str) else transcription.text}"}
+        #             ]}
+        #         ],
+        #         temperature=temperature,
+        #         max_tokens=4096
+            # )
+        # else: # Without the audio transcription
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": [
+                    *map(lambda x: {"type": "image_url", "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "auto"}}, base64frames),
+                ]}
+            ],
+            temperature=0.5,
+            max_tokens=4096
             )
 
         json_response = json.loads(response.model_dump_json())
@@ -201,26 +196,26 @@ def execute_video_processing(st, segment_path, system_prompt, user_prompt, tempe
             ### st.write(f'Extracted {len(base64frames)} frames in {(end_time - start_time):.3f} seconds')
 
         # Extract the transcription of the audio
-        if audio_transcription:
-            msg = f'Analyzing frames and audio with {aoai_model_name}...'
-            with st.spinner(f"Transcribing audio from video file..."):
-                start_time = time.time()
-                transcription = process_audio(segment_path)
-                end_time = time.time()
-            ### st.write(f'Transcription finished in {(end_time - start_time):.3f} seconds')
-            print(f'Transcription: [{transcription}]')
-            if show_transcription:
-                st.markdown(f"**Transcription**: {transcription}", unsafe_allow_html=True)
-            print(f'\t>>>> Audio transcription took {(end_time - start_time):.3f} seconds <<<<')
-        else:
-            msg = f'Analyzing frames with {aoai_model_name}...'
+        # if audio_transcription:
+        #     msg = f'Analyzing frames and audio with {MODEL_OPTION}...'
+        #     with st.spinner(f"Transcribing audio from video file..."):
+        #         start_time = time.time()
+        #         transcription = process_audio(segment_path)
+        #         end_time = time.time()
+        #     ### st.write(f'Transcription finished in {(end_time - start_time):.3f} seconds')
+        #     print(f'Transcription: [{transcription}]')
+        #     if show_transcription:
+        #         st.markdown(f"**Transcription**: {transcription}", unsafe_allow_html=True)
+        #     print(f'\t>>>> Audio transcription took {(end_time - start_time):.3f} seconds <<<<')
+        # else: #FIXME
+            msg = f'Analyzing frames with {MODEL_NAME}...'
             transcription = ''
         # Analyze the video frames and the audio transcription with GPT-4o
         with st.spinner(msg):
             start_time = time.time()
             analysis = analyze_video(base64frames, system_prompt, user_prompt, transcription, temperature)
             end_time = time.time()
-        print(f'\t>>>> Analysis with {aoai_model_name} took {(end_time - start_time):.3f} seconds <<<<')
+        print(f'\t>>>> Analysis with {MODEL_NAME} took {(end_time - start_time):.3f} seconds <<<<')
 
     ### st.write(f"**Analysis of segment {segment_path}** ({(end_time - start_time):.3f} seconds)")
     end_time = time.time()
@@ -247,7 +242,7 @@ with st.sidebar:
         if continuous_transmision:
             initial_split = SEGMENT_DURATION
         
-    audio_transcription = st.checkbox('Transcribe audio', True, help="Extract the audio transcription and use in the analysis or not")
+    audio_transcription = st.checkbox('Transcribe audio (coming soon)', False, help="Extract the audio transcription and use in the analysis or not")
     if audio_transcription:
         show_transcription = st.checkbox('Show audio transcription', True, help="Present the audio transcription or not")
     seconds_split = st.number_input('Number of seconds to split the video', initial_split, help="The video will be processed in smaller segments based on the number of seconds specified in this field. (0 to not split)")
